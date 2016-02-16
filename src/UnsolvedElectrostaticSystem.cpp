@@ -152,4 +152,12 @@ void UnsolvedElectrostaticSystem::setBoundaryRectangle(int left, int right,
     setBoundaryLine(right, bottom, right, top, potential);
 }
 
+  void UnsolvedElectrostaticSystem::setBoundaryQuad(int x1, int x2, int x3, int x4, int y1, int y2, int y3, int y4, double potential) {
+    setBoundaryLine(x1,y1,x2,y2);
+    setBoundaryLine(x2,y2,x3,y3);
+    setBoundaryLine(x3,y3,x4,y4);
+    setBoundaryLine(x4,y4,x1,y1);
+  }
+
+
 } // namespace electrostatics

@@ -81,5 +81,12 @@ class UnsolvedElectrostaticSystem : public ElectrostaticSystem{
         void setBoundaryRectangle(int left, int right, int top, int bottom, double potential);
 };
 
+/* Set a quadrilateral as a boundary condition. 
+ * With vertices defined by (x1,y1),(x2,y2),(x3,y3),(x4,y4).
+ * Reccomend sketching quadrilateral on paper to help define correct points for desired shape
+ * NOTE: Quadrilateral is not filled! 
+ */
+ void setBoundaryQuad(int x1, int x2, int x3, int x4, int y1, int y2, int y3, int y4, double potential);
+
 } // namespace electrostatics
 #endif
