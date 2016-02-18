@@ -12,22 +12,30 @@ yMin = -250
 set yrange [-250 : 250];
 set xrange [-250 : 250];
 
-set output "numericalProblem1.eps"
+set output "numericalproblem1.eps"
 set title "Numerical solution for problem 1"
-splot "../bin/numericalProblem1" using ($1+xMin):($2+yMin):3 matrix
+splot "../bin/numericalproblem1" using ($1+xMin):($2+yMin):3 matrix
 
-set output "analyticalProblem1.eps"
+set output "analyticalproblem1.eps"
 set title "Analytical Soultion for problem 1"
-splot "../bin/analyticalProblem1" using ($1+xMin):($2+yMin):3 matrix
+splot "../bin/analyticalproblem1" using ($1+xMin):($2+yMin):3 matrix
 
-set output "differenceProblem1.eps"
+set output "differenceproblem1.eps"
 set title "Difference between analytical and numerical solutions for problem 1"
-splot "../bin/differenceProblem1" using ($1+xMin):($2+yMin):3 matrix
+splot "../bin/differenceproblem1" using ($1+xMin):($2+yMin):3 matrix
 
-set output "numericalProblem1Contour.eps"
+set output "numericalproblem1contour.eps"
 set title "Numerical equipotentials for problem 1"
 set isosamples 21, 21
 set contour surface
 set cntrparam levels auto 10
 set style data lines
-splot "../bin/numericalProblem1" using ($1+xMin):($2+yMin):3 matrix with lines nosurf lw 3
+splot "../bin/numericalproblem1" using ($1+xMin):($2+yMin):3 matrix with lines nosurf lw 3
+
+set output "numericalfieldproblem1.eps"
+set title "Numerical field for problem 1"
+set parametric;
+set isosamples 100,100
+plot "../bin/numericalfieldproblem1" every 20:20 using 1:2:($3*40):($4*40) with vectors
+
+

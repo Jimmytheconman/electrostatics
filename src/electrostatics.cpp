@@ -5,241 +5,237 @@
 #include <iostream>
 #include <fstream>
 #include <string>
-#include <cmath>
-using namespace std;
+#include <cmath>  // Not needed?
+#include <utility>
+#include <sstream>
+#include <unordered_map>
+#include <cstdlib>
+#include "sys/types.h"
+#include "sys/sysinfo.h"
+#include "sys/times.h"
+#include "sys/vtimes.h"
+#include "stdlib.h"
+#include "stdio.h"
 
-//double problem1analytical();
-//double problem2analytical();
-void solveProblem1();
-void solveProblem2();
-void solveProblem3();
+//parse line function 
+int parseLine(char* line){
+  int i =strlen(line);
+  while (*line < '0' || *line > '9')line++;
+  line[i-3] = '\0';
+  i = atoi(line);
+  return i;
+}
 
-/* Currently asks the user to select problem 1 or 2 and to input the relevant paramters.
- * The output (plot data for the analytical solution, plot data for the numerical solution, 
- * and plot data for the difference between the two solutions) is saved to the specified files.
- *
- * It will need to be generalised / changed to allow solving of arbitrary electrostatic
- * systems.
+
+//Returns RAM used by process in KB
+int getRAMValue(){
+  FILE* file = fopen("/proc/self/status","r");
+  int result = -1;
+  char line[128];
+  while (fgets(line, 128, file) != NULL){
+    if (strncmp(line, "VmRSS:", 6) == 0){
+      result=parseLine(line);
+      break;
+    }
+  }
+  fclose(file);
+  return result;
+}
+
+//Return CPU used by process
+static clock_t lastCPU, lastSysCPU, lastUserCPU;
+static int numProcessors;
+    
+    void init(){
+        FILE* file;
+        struct tms timeSample;
+        char line[128];
+    
+        lastCPU = times(&timeSample);
+        lastSysCPU = timeSample.tms_stime;
+        lastUserCPU = timeSample.tms_utime;
+    
+        file = fopen("/proc/cpuinfo", "r");
+        numProcessors = 0;
+        while(fgets(line, 128, file) != NULL){
+            if (strncmp(line, "processor", 9) == 0) numProcessors++;
+        }
+        fclose(file);
+    }
+    
+    double getCurrentCPUValue(){
+        struct tms timeSample;
+        clock_t now;
+        double percentCPU;
+    
+        now = times(&timeSample);
+        if (now <= lastCPU || timeSample.tms_stime < lastSysCPU ||
+            timeSample.tms_utime < lastUserCPU){
+            percentCPU = -1.0;
+        }
+        else{
+            percentCPU = (timeSample.tms_stime - lastSysCPU) +
+                (timeSample.tms_utime - lastUserCPU);
+            percentCPU /= (now - lastCPU);
+            percentCPU /= numProcessors;
+            percentCPU *= 100;
+        }
+        lastCPU = now;
+        lastSysCPU = timeSample.tms_stime;
+        lastUserCPU = timeSample.tms_utime;
+    
+        return percentCPU;
+    }
+
+
+void processLine(std::string &line, std::vector<std::string> &splitLine);
+
+// A pair of electrostatic systems - one solved, one unsolved
+struct systemPair {
+    electrostatics::UnsolvedElectrostaticSystem unsolved;
+    electrostatics::SolvedElectrostaticSystem solved;
+    systemPair(int iMin, int iMax, int jMin, int jMax) :
+        unsolved(iMin, iMax, jMin, jMax),
+        solved(iMin, iMax, jMin, jMax) {
+    }
+};
+
+/* TODO - WRITE THIS COMMENT
  */
-int main() {
-    int problemNumber;
-
-    std::cout << "\nWhich system would you like to generate plot data for?\n" <<
-        "1. The system with the two concentical cylinders.\n" <<
-        "2. The system with the cylinder between two plates.\n" <<
-        "3. The Multi-wire proportional Chamber. \n" <<
-        "Enter '1', '2' or '3': ";
-    std::cin >> problemNumber;
-    std::cout << "\n";
-
-    switch(problemNumber) {
-        case 1:
-            solveProblem1();
-            break;
-        case 2:
-            solveProblem2();
-            break;
-        case 3:
-            solveProblem3();
-            break;
+int main(int argc, char* argv[]) {
+    std::ifstream configFile;
+    configFile.open(argv[1]);
+    if(!configFile) {
+        std::cerr << "Error Opening File\n";
+        return(1);
     }
-    std::cout << "\n";
-    return 0;
-}
 
+    // System pairs are indexed by names which the user enters
+    std::unordered_map<std::string, systemPair> systems;
+    std::string lastMade;   // Name of the last system pair made
 
-void solveProblem1() {
-    std::cout << "Solving system 1 using grid size ixj.\n";
+    // Variables for reading a line
+    std::string line;
+    std::vector<std::string> splitLine;
 
-    // Get the dimensions of the problem
-    int iMin;
-    int iMax;
-    int jMin;
-    int jMax;
-    std::cout <<"Enter minimum value for i: ";
-    std::cin >> iMin;
-    std::cout <<"Enter maximum value for i: ";
-    std::cin >> iMax;
-    std::cout <<"Enter minimum value for j: ";
-    std::cin >> jMin;
-    std::cout << "Enter maximum value for j: ";
-    std::cin >> jMax;
+    // Read in and process lines
+    while(!configFile.eof()) {
+        // Read a line and process it (split at spaces, convert to lowercase etc)
+        std::getline(configFile, line);
+        if(line == "") continue;             // Blank line
+        splitLine.clear();
+        processLine(line, splitLine);
+        if(splitLine[0] == "#") continue;    // Comment line
 
-    // Get the necessary parameters - inner cylinder is A, outer is B
-    double radiusA;
-    double potentialA;
-    double radiusB;
-    double potentialB;
-    std::cout << "Enter radius for inner cylinder: ";
-    std::cin >> radiusA;
-    std::cout << "Enter potential for inner cylinder: ";
-    std::cin >> potentialA; 
-    std::cout << "Enter radius for outer cylinder: ";
-    std::cin >> radiusB;
-    std::cout << "Enter potential for outer cylinder: ";
-    std::cin >> potentialB;
+        // For creating a new system
+        else if(splitLine[0] == "new") {
+            std::string name = splitLine[1];
+            int iMin = std::stoi(splitLine[2]);
+            int iMax = std::stoi(splitLine[3]);
+            int jMin = std::stoi(splitLine[4]);
+            int jMax = std::stoi(splitLine[5]);
+            systems.emplace(name, systemPair(iMin, iMax, jMin, jMax));
+            lastMade = name;
+        }
+            
+        // For creating problem 1 analytical solution
+        else if(splitLine[0] == "analytical1") {
+            int iMin = systems.at(lastMade).solved.getIMin();
+            int iMax = systems.at(lastMade).solved.getIMax();
+            int jMin = systems.at(lastMade).solved.getJMin();
+            int jMax = systems.at(lastMade).solved.getJMax();
+            for(int i=iMin; i<= iMax; i++) {
+                for(int j=jMin; j<=jMax; j++) {
+                    double potential = electrostatics::analyticalProblem1(i, j, std::stod(splitLine[1]),
+                            std::stod(splitLine[2]), std::stod(splitLine[3]), std::stod(splitLine[4]));
+                    systems.at(lastMade).solved.setPotentialIJ(i, j, potential);
+                }
+            }
+        }
+        // For creating problem 2 analytical solution
+        else if(splitLine[0] == "analytical2") {
+            int iMin = systems.at(lastMade).solved.getIMin();
+            int iMax = systems.at(lastMade).solved.getIMax();
+            int jMin = systems.at(lastMade).solved.getJMin();
+            int jMax = systems.at(lastMade).solved.getJMax();
+            for(int i=iMin; i<= iMax; i++) {
+                for(int j=jMin; j<=jMax; j++) {
+                    double uniformField = electrostatics::uniformField(iMin, iMax, std::stod(splitLine[1]),
+                            std::stod(splitLine[2]));
+                    double potential = electrostatics::analyticalProblem2(i, j, std::stod(splitLine[3]), 
+                            uniformField);
+                    systems.at(lastMade).solved.setPotentialIJ(i, j, potential);
+                }
+            }
+        }
 
+        // For adding boundary conditions
+        else if(splitLine[0] == "point") {
+            systems.at(lastMade).unsolved.setBoundaryPoint(std::stoi(splitLine[1]), std::stoi(splitLine[2]),
+                    std::stod(splitLine[3]));
+        }
+        else if(splitLine[0] == "ring") {
+            systems.at(lastMade).unsolved.setBoundaryRing(std::stoi(splitLine[1]), std::stoi(splitLine[2]),
+                    std::stod(splitLine[3]), std::stod(splitLine[4]));
+        }
+        else if(splitLine[0] == "circle") {
+            systems.at(lastMade).unsolved.setBoundaryCircle(std::stoi(splitLine[1]), std::stoi(splitLine[2]),
+                    std::stod(splitLine[3]), std::stod(splitLine[4]));
+        }
+        else if(splitLine[0] == "line") {
+            systems.at(lastMade).unsolved.setBoundaryLine(std::stoi(splitLine[1]), std::stoi(splitLine[2]),
+                    std::stoi(splitLine[3]), std::stoi(splitLine[4]), std::stod(splitLine[5]));
+        }
+        else if(splitLine[0] == "left") {
+            systems.at(lastMade).unsolved.setLeftBoundary(std::stod(splitLine[1]));
+        }
+        else if(splitLine[0] == "right") {
+            systems.at(lastMade).unsolved.setRightBoundary(std::stod(splitLine[1]));
+        }
+        else if(splitLine[0] == "top") {
+            systems.at(lastMade).unsolved.setTopBoundary(std::stod(splitLine[1]));
+        }
+        else if(splitLine[0] == "bottom") {
+            systems.at(lastMade).unsolved.setBottomBoundary(std::stod(splitLine[1]));
+        }
+        else if(splitLine[0] == "rectangle") {
+            systems.at(lastMade).unsolved.setBoundaryRectangle(std::stoi(splitLine[1]), std::stoi(splitLine[2]),
+                    std::stoi(splitLine[3]), std::stoi(splitLine[4]), std::stod(splitLine[5]));
+        }
 
-    // Numerical Solution
-    // Setup the unsolved system with the boundary conditions, and then solve it
-    electrostatics::UnsolvedElectrostaticSystem unsolvedSystem(iMin, iMax, jMin, jMax);
-    unsolvedSystem.setBoundaryCircle(0, 0, radiusA, potentialA);
-    unsolvedSystem.setBoundaryRing(0, 0, radiusB, potentialB);
+        // For solving - need to add options for different methods once they are properly implemented
+        else if(splitLine[0] == "solve") {
+            electrostatics::finiteDifferenceSolve(systems.at(lastMade).unsolved, systems.at(lastMade).solved);
+        }
 
-    electrostatics::SolvedElectrostaticSystem solvedSystemNumerical(iMin, iMax, jMin, jMax);
-    electrostatics::finiteDifferenceSolve(unsolvedSystem, solvedSystemNumerical);
-    solvedSystemNumerical.saveFile("numericalProblem1");
-
-
-    // Analytical solution
-    electrostatics::SolvedElectrostaticSystem systemAnalytical(iMin, iMax, jMin, jMax);
-    for(int i=iMin; i<=iMax; i++) {
-        for(int j=jMin; j<=jMax; j++) {
-            systemAnalytical.setPotentialIJ(i, j,
-                    electrostatics::analyticalProblem1(i, j, radiusA, radiusB, potentialA, potentialB));
+        // For comparisons and outputing results
+        else if(splitLine[0] == "savesolution") {
+            systems.at(lastMade).solved.saveFile(splitLine[1]);
+        }
+        // Would be better to implement a method for this with saving directly to a file in the future
+        else if(splitLine[0] == "savecomparison") {
+            int iMin = systems.at(splitLine[1]).solved.getIMin();
+            int iMax = systems.at(splitLine[1]).solved.getIMax();
+            int jMin = systems.at(splitLine[1]).solved.getJMin();
+            int jMax = systems.at(splitLine[1]).solved.getJMax();
+            electrostatics::SolvedElectrostaticSystem comparisonResult(iMin, iMax, jMin, jMax);
+            systems.at(splitLine[1]).solved.compareTo(systems.at(splitLine[2]).solved, comparisonResult);
+            comparisonResult.saveFile(splitLine[3]);
+        }
+        else if(splitLine[0] == "savefield") {
+            systems.at(splitLine[1]).solved.saveFieldGNUPlot(splitLine[2]);
         }
     }
-    systemAnalytical.saveFile("analyticalProblem1");
-
-
-    // Difference between analytical and numerical solutions
-    electrostatics::SolvedElectrostaticSystem solutionComparison(iMin, iMax, jMin, jMax);
-    solvedSystemNumerical.compareTo(systemAnalytical, solutionComparison);
-    solutionComparison.saveFile("differenceProblem1");
+    configFile.close();
 }
 
 
-void solveProblem2() {
-    // Get the dimensions of the problem
-    int iMin;
-    int iMax;
-    int jMin;
-    int jMax;
-    std::cout <<"Enter minimum value for i: ";
-    std::cin >> iMin;
-    std::cout <<"Enter maximum value for i: ";
-    std::cin >> iMax;
-    std::cout <<"Enter minimum value for j: ";
-    std::cin >> jMin;
-    std::cout << "Enter maximum value for j: ";
-    std::cin >> jMax;
-
-    // Get the necessary parameters
-    double cylinderRadius;
-    double cylinderPotential;
-    double leftPotential;
-    double rightPotential;
-    std::cout << "Enter radius for cylinder: ";
-    std::cin >> cylinderRadius;
-    cylinderPotential = 0;
-    std::cout << "Enter potential for left plate: ";
-    std::cin >> leftPotential;
-    std::cout << "Enter potential for right plate: ";
-    std::cin >> rightPotential;
-
-
-    // Numerical Solution
-    // Setup the unsolved system with the boundary conditions, and then solve it
-    electrostatics::UnsolvedElectrostaticSystem unsolvedSystem(iMin, iMax, jMin, jMax);
-    unsolvedSystem.setBoundaryCircle(0, 0, cylinderRadius, cylinderPotential);
-    unsolvedSystem.setLeftBoundary(leftPotential);
-    unsolvedSystem.setRightBoundary(rightPotential);
-
-    electrostatics::SolvedElectrostaticSystem solvedSystemNumerical(iMin, iMax, jMin, jMax);
-    electrostatics::finiteDifferenceSolve(unsolvedSystem, solvedSystemNumerical);
-    solvedSystemNumerical.saveFile("numericalProblem2");
-
-    // Analytical solution
-    electrostatics::SolvedElectrostaticSystem systemAnalytical(iMin, iMax, jMin, jMax);
-    // Calculate the potential at each point using the analytical solution
-    double uniformField =electrostatics::uniformField(iMin, iMax, leftPotential, rightPotential);
-    for(int i=iMin; i<=iMax; i++) {
-        for(int j=jMin; j<=jMax; j++) {
-            systemAnalytical.setPotentialIJ(i, j, 
-                    electrostatics::analyticalProblem2(i, j, cylinderRadius, uniformField));
-        }
-    }
-    systemAnalytical.saveFile("analyticalProblem2");
-
-
-    // Difference between analytical and numerical solutions
-    electrostatics::SolvedElectrostaticSystem solutionComparison(iMin, iMax, jMin, jMax);
-    solvedSystemNumerical.compareTo(systemAnalytical, solutionComparison);
-    solutionComparison.saveFile("differenceProblem2");
-}
-
-void solveProblem3() {
-    // Get the dimensions of the problem
-    int iMin;
-    int iMax;
-    int jMin;
-    int jMax;
-    std::cout <<"Enter minimum value for i: ";
-    std::cin >> iMin;
-    std::cout <<"Enter maximum value for i: ";
-    std::cin >> iMax;
-    std::cout <<"Enter minimum value for j: ";
-    std::cin >> jMin;
-    std::cout << "Enter maximum value for j: ";
-    std::cin >> jMax;
-
-    // Get the necessary parameters
-    double cylinderRadius;
-    double cylinderPotential;
-    double topPotential;
-    double bottomPotential;
-    double cylinderSpacing;
-    int numCylinder;
-    std::cout << "Enter radii for the wires: ";
-    std::cin >> cylinderRadius;
-    cylinderPotential = 0;
-    std::cout << "Enter the total number of wires: ";
-    std::cin >> numCylinder;
-    std::cout << "Enter the spacing between the wires: ";
-    std::cin >> cylinderSpacing;
-    std::cout << "Enter potential for the top  plate: ";
-    std::cin >> topPotential;
-    std::cout << "Enter potential for the bottom plate: ";
-    std::cin >> bottomPotential;
-
-    // Numerical Solution
-    // Setup the unsolved system with the boundary conditions, and then solve it
-    electrostatics::UnsolvedElectrostaticSystem unsolvedSystem(iMin, iMax, jMin, jMax);
-    unsolvedSystem.setBoundaryCircle(0, 0, cylinderRadius, cylinderPotential);
-    for (int k = 0; k < (numCylinder-1)/2; k++){
-      unsolvedSystem.setBoundaryCircle(cylinderSpacing, 0, cylinderRadius, cylinderPotential);
-      unsolvedSystem.setBoundaryCircle(-cylinderSpacing, 0, cylinderRadius, cylinderPotential);
-      cylinderSpacing += cylinderSpacing;
-    }
-    unsolvedSystem.setTopBoundary(topPotential);
-    unsolvedSystem.setBottomBoundary(bottomPotential);
-
-    electrostatics::SolvedElectrostaticSystem solvedSystemNumerical(iMin, iMax, jMin, jMax);
-    electrostatics::finiteDifferenceSolve(unsolvedSystem, solvedSystemNumerical);
-    solvedSystemNumerical.saveFile("numericalProblem3");
-
-    //Edit GNUPlot file to handle user-set range and problem number
-    ofstream plotfile("../scripts/plotProblemGeneric.plt");
-    if (plotfile.is_open())
-      {
-	plotfile << "#!/usr/bin/gnuplot -persist \n";
-	plotfile << "load '../scripts/colormap.pal' \n";
-	plotfile << "set size ratio -1 \n";
-	plotfile << "set term postscript color \n";
-	plotfile << "set pm3d map \n";
-	plotfile << "set xlabel \"i\" \n ";
-	plotfile << "set ylabel \"j\" \n";
-	plotfile << "set nokey \n";
-
-	plotfile << "xMin = " << iMin << " \n";
-	plotfile << "yMin = " << jMin << " \n";
-	plotfile << "set xrange [" << iMin << ":" << iMax <<"]\n";
-	plotfile << "set yrange [" << jMin << ":" << jMax <<"]\n";
-
-	plotfile << "set output \"numericalProblemGeneric.eps\"\n";
-	plotfile << "set title \" Numerical Solution for Problem Generic\"\n";
-	plotfile << "splot \"../bin/numericalProblem3\" using ($1 +xMin):($2+yMin):3 matrix \n";
-	plotfile.close();
-}
-
+/* Process a line by splitting it at spaces, converting to lowercase, and saving 
+ * each part in a vector.
+ */
+void processLine(std::string &line, std::vector<std::string> &splitLine) {
+    std::transform(line.begin(), line.end(), line.begin(), ::tolower);
+    std::istringstream lineStream(line);
+    std::string word;
+    while(std::getline(lineStream, word, ' ')) splitLine.push_back(word);
 }

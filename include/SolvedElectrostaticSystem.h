@@ -23,6 +23,7 @@ class SolvedElectrostaticSystem : public ElectrostaticSystem{
         doubleGrid fieldX;  // Component of field in x direction
         doubleGrid fieldY;  // Component of field in y direction
         bool fieldFound;    // True if the field has been found
+        double maxField;    // The maximum magnitude of the field
 
     public:
         /* Constructors */

@@ -86,7 +86,9 @@ void ElectrostaticSystem::compareTo(const ElectrostaticSystem &otherSystem,
             this->getJMin() != otherSystem.getJMin() ||
             this->getJMax() != otherSystem.getJMax() ||
             this->getIMin() != comparisonResults.getIMin() ||
-            this->getIMax() != comparisonResults.getIMax()) {
+            this->getIMax() != comparisonResults.getIMax() ||
+            this->getJMin() != comparisonResults.getJMin() ||
+            this->getJMax() != comparisonResults.getJMax()) {
         throw std::invalid_argument(
                 "The dimensions of both systems and the system for the results must match!");
     }

@@ -16,6 +16,7 @@ namespace electrostatics {
 SolvedElectrostaticSystem::SolvedElectrostaticSystem(int iMin, int iMax, int jMin, int jMax) :
     ElectrostaticSystem(iMin, iMax, jMin, jMax) {
         fieldFound = false;
+        maxField = 0;
 }
 
 
@@ -28,18 +29,21 @@ void SolvedElectrostaticSystem::findField() {
     for(int i=iMin; i<=iMax; i++) {
         for(int j=jMin; j<=jMax; j++) {
             // Components in i direction
-            if(i==iMax) fieldX(i-iMin, j-jMin) = getPotentialIJ(i,j) - getPotentialIJ(i-1,j);
-            else if(i==iMin) fieldX(i-iMin, j-jMin) = getPotentialIJ(i+1,j)  -getPotentialIJ(i,j);
-            else fieldX(i-iMin, j-jMin) = (getPotentialIJ(i+1,j)-getPotentialIJ(i-1,j))/2;
+            if(i==iMax) fieldX(i-iMin, j-jMin) = -(getPotentialIJ(i, j) - getPotentialIJ(i-1, j));
+            else if(i==iMin) fieldX(i-iMin, j-jMin) = -(getPotentialIJ(i+1, j)  - getPotentialIJ(i, j));
+            else fieldX(i-iMin, j-jMin) = -((getPotentialIJ(i+1, j) - getPotentialIJ(i-1, j))/2);
 
             // Components in j direction
-            if(j==jMax) fieldY(i-iMin, j-jMin) = getPotentialIJ(i,j) - getPotentialIJ(i,j-1);
-            else if(j==jMin) fieldY(i-iMin, j-jMin) = getPotentialIJ(i,j+1)  -getPotentialIJ(i,j);
-            else fieldY(i-iMin, j-jMin) = (getPotentialIJ(i,j+1)-getPotentialIJ(i,j-1))/2;
+            if(j==jMax) fieldY(i-iMin, j-jMin) = -(getPotentialIJ(i, j) - getPotentialIJ(i, j-1));
+            else if(j==jMin) fieldY(i-iMin, j-jMin) = -(getPotentialIJ(i, j+1)  - getPotentialIJ(i, j));
+            else fieldY(i-iMin, j-jMin) = -((getPotentialIJ(i, j+1) - getPotentialIJ(i, j-1))/2);
 
             // Full field
-            field(i-iMin, j-jMin) = sqrt( pow(fieldX(i-iMin, j-jMin), 2) + 
+            double currentField = sqrt( pow(fieldX(i-iMin, j-jMin), 2) +
                     pow(fieldY(i-iMin, j-jMin), 2) );
+            field(i-iMin, j-jMin) = currentField;
+
+            if(currentField > maxField) maxField = currentField;
         }
     }
     fieldFound = true;
@@ -51,7 +55,7 @@ void SolvedElectrostaticSystem::saveFieldGNUPlot(std::string fileName) {
     outputFile.open(fileName.c_str());
     for(int i=iMin; i<=iMax; i++) {
         for(int j=jMin; j<=jMax; j++) {
-            outputFile << i << " " << j << " " << field(i-iMin, j-jMin) << "\n";
+            outputFile << i << " " << j << " " << fieldX(i-iMin, j-jMin)/maxField << " " << fieldY(i-iMin, j-jMin)/maxField <<"\n";
         }
         outputFile << "\n";
     }
